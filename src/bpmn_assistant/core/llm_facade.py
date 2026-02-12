@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from bpmn_assistant.config import logger
 from bpmn_assistant.core.enums import MessageRole, OutputMode, Provider
 from bpmn_assistant.core.llm_provider import LLMProvider
-from bpmn_assistant.core.provider_factory import ProviderFactory
+from bpmn_assistant.core.provider_impl import LiteLLMProvider
 from bpmn_assistant.core.schemas import MessageImage
 
 
@@ -21,14 +21,21 @@ class LLMFacade:
         """
         Initialize the LLM facade with the given provider, API key, model, and output mode.
         Args:
-            provider: The provider to use (openai or anthropic)
+            provider: The provider to use
             api_key: The API key for the provider
             model: The model to use
             output_mode: The output mode (JSON or text)
         """
-        self.provider: LLMProvider = ProviderFactory.get_provider(
-            provider, api_key, output_mode
-        )
+        supported_providers = {
+            Provider.OPENAI,
+            Provider.ANTHROPIC,
+            Provider.FIREWORKS_AI,
+            Provider.GOOGLE,
+        }
+        if provider not in supported_providers:
+            raise ValueError(f"Unsupported LLM provider: {provider}")
+
+        self.provider: LLMProvider = LiteLLMProvider(api_key, output_mode)
         self.model = model
         self.output_mode = output_mode
 
@@ -60,7 +67,7 @@ class LLMFacade:
         prompt: str,
         max_tokens: int = 5000,
         temperature: float = 0.3,
-        structured_output: BaseModel | None = None,
+        structured_output: type[BaseModel] | None = None,
         images: list[MessageImage] | None = None,
     ) -> str | dict[str, Any]:
         """

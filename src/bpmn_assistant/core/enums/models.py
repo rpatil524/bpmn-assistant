@@ -2,23 +2,18 @@ from enum import Enum
 
 
 class OpenAIModels(Enum):
-    GPT_5_1 = "gpt-5.1"
-    GPT_5_MINI = "gpt-5-mini"
+    GPT_5_2 = "gpt-5.2-2025-12-11"
     GPT_4_1 = "gpt-4.1"
 
 class AnthropicModels(Enum):
     SONNET_4_5 = "claude-sonnet-4-5-20250929"
-    OPUS_4_1 = "claude-opus-4-1-20250805"
+    OPUS_4_6 = "claude-opus-4-6"
 
 
 class GoogleModels(Enum):
-    GEMINI_2_5_FLASH = "gemini/gemini-2.5-flash"
-    GEMINI_2_5_PRO = "gemini/gemini-2.5-pro"
+    GEMINI_3_FLASH = "gemini/gemini-3-flash-preview"
+    GEMINI_3_PRO = "gemini/gemini-3-pro-preview"
 
 
 class FireworksAIModels(Enum):
-    LLAMA_4_MAVERICK = (
-        "fireworks_ai/accounts/fireworks/models/llama4-maverick-instruct-basic"
-    )
-    QWEN_3_235B = "fireworks_ai/accounts/fireworks/models/qwen3-235b-a22b"
-    DEEPSEEK_V3_1 = "fireworks_ai/accounts/fireworks/models/deepseek-v3p1-terminus"
+    KIMI_K2P5 = "fireworks_ai/kimi-k2p5"

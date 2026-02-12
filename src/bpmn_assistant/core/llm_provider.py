@@ -12,7 +12,7 @@ class LLMProvider(ABC):
         messages: list[dict[str, str]],
         max_tokens: int,
         temperature: float,
-        structured_output: BaseModel | None = None,
+        structured_output: type[BaseModel] | None = None,
     ) -> str | dict[str, Any]:
         pass
 

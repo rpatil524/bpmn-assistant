@@ -93,17 +93,6 @@ def get_available_providers(api_keys: dict[str, str] | None = None) -> dict:
     }
 
 
-def replace_reasoning_model(model: str) -> str:
-    """
-    Replaces reasoning models with more lightweight models.
-    """
-    if model in [
-        FireworksAIModels.QWEN_3_235B.value,
-    ]:
-        return FireworksAIModels.DEEPSEEK_V3_1.value
-    return model
-
-
 def is_openai_model(model: str) -> bool:
     return model in [model.value for model in OpenAIModels]
 

@@ -1,6 +1,5 @@
 import json
 import os
-import re
 from typing import Any, Generator
 
 from litellm import completion
@@ -8,17 +7,20 @@ from pydantic import BaseModel
 
 from bpmn_assistant.config import logger
 from bpmn_assistant.core.enums.models import (
+    AnthropicModels,
     FireworksAIModels,
     GoogleModels,
     OpenAIModels,
 )
 from bpmn_assistant.core.enums.output_modes import OutputMode
+from bpmn_assistant.core.json_parser import parse_json_loose
 from bpmn_assistant.core.llm_provider import LLMProvider
 
 
 class LiteLLMProvider(LLMProvider):
     def __init__(self, api_key: str, output_mode: OutputMode = OutputMode.JSON):
         self.output_mode = output_mode
+        os.environ["ANTHROPIC_API_KEY"] = api_key
         os.environ["FIREWORKS_AI_API_KEY"] = api_key
         os.environ["OPENAI_API_KEY"] = api_key
         os.environ["GEMINI_API_KEY"] = api_key
@@ -52,7 +54,7 @@ class LiteLLMProvider(LLMProvider):
         messages: list[dict[str, str]],
         max_tokens: int,
         temperature: float,
-        structured_output: BaseModel | None = None,
+        structured_output: type[BaseModel] | None = None,
     ) -> str | dict[str, Any]:
         self._validate_vision_support(model, messages)
 
@@ -67,7 +69,7 @@ class LiteLLMProvider(LLMProvider):
         params["max_tokens"] = max_tokens
 
         # GPT-5 models only support temperature=1
-        if model in [OpenAIModels.GPT_5_1.value, OpenAIModels.GPT_5_MINI.value]:
+        if model == OpenAIModels.GPT_5_2.value:
             params["temperature"] = 1
         else:
             params["temperature"] = temperature
@@ -88,20 +90,6 @@ class LiteLLMProvider(LLMProvider):
             logger.error(f"Model returned None content: {response}")
             raise Exception("Model returned empty content")
 
-        if model in [
-            FireworksAIModels.QWEN_3_235B.value,
-        ]:
-            # Extract thinking phase and clean output
-            think_pattern = r"<think>(.*?)</think>"
-            think_match = re.search(think_pattern, raw_output, re.DOTALL)
-
-            if think_match:
-                thinking = think_match.group(1).strip()
-                logger.info(f"Model thinking phase: {thinking}")
-                raw_output = re.sub(
-                    think_pattern, "", raw_output, flags=re.DOTALL
-                ).strip()
-
         return self._process_response(raw_output)
 
     def stream(
@@ -114,7 +102,7 @@ class LiteLLMProvider(LLMProvider):
         self._validate_vision_support(model, messages)
 
         # GPT-5 models only support temperature=1
-        if model in [OpenAIModels.GPT_5_1.value, OpenAIModels.GPT_5_MINI.value]:
+        if model == OpenAIModels.GPT_5_2.value:
             temperature = 1
 
         response = completion(
@@ -125,50 +113,10 @@ class LiteLLMProvider(LLMProvider):
             stream=True,
         )
 
-        open_tag, close_tag = "<think>", "</think>"
-        inside_think = False
-        thought_parts: list[str] = []
-        buffer = ""
-        first_payload_sent = False
-
-        try:
-            for chunk in response:
-                fragment = chunk.choices[0].delta.content or ""
-                if not fragment:
-                    continue
-
-                buffer += fragment
-                while buffer:
-                    if inside_think:
-                        end_idx = buffer.find(close_tag)
-                        if end_idx == -1:
-                            thought_parts.append(buffer)
-                            buffer = ""
-                        else:
-                            thought_parts.append(buffer[:end_idx])
-                            buffer = buffer[end_idx + len(close_tag) :]
-                            inside_think = False
-                    else:
-                        start_idx = buffer.find(open_tag)
-                        if start_idx == -1:
-                            payload = buffer
-                            buffer = ""
-                        else:
-                            payload = buffer[:start_idx]
-                            buffer = buffer[start_idx + len(open_tag) :]
-                            inside_think = True
-
-                        if payload:
-                            if not first_payload_sent:
-                                payload = payload.lstrip("\n")
-                                if not payload:
-                                    continue
-                                first_payload_sent = True
-                            yield payload
-        finally:
-            thought = "".join(thought_parts).strip()
-            if thought:
-                logger.info(f"Model thinking phase: {thought}")
+        for chunk in response:
+            fragment = chunk.choices[0].delta.content or ""
+            if fragment:
+                yield fragment
 
     def get_initial_messages(self) -> list[dict[str, str]]:
         return (
@@ -187,6 +135,7 @@ class LiteLLMProvider(LLMProvider):
             model in [m.value for m in FireworksAIModels]
             or model in [m.value for m in OpenAIModels]
             or model in [m.value for m in GoogleModels]
+            or model in [m.value for m in AnthropicModels]
         )
 
     def _process_response(self, raw_output: str) -> str | dict[str, Any]:
@@ -198,15 +147,22 @@ class LiteLLMProvider(LLMProvider):
         if self.output_mode == OutputMode.JSON:
             try:
                 result = json.loads(raw_output)
-
-                if not isinstance(result, dict):
-                    raise ValueError(f"Invalid JSON response from LLM: {result}")
-
-                return result
             except json.decoder.JSONDecodeError as e:
-                logger.error(f"JSONDecodeError: {e}")
-                logger.error(f"Raw output: {raw_output}")
-                raise Exception("Invalid JSON response from LLM") from e
+                logger.debug(
+                    f"Strict JSON parsing failed for model response. "
+                    f"Trying loose parser. Error: {e}"
+                )
+                try:
+                    result = parse_json_loose(raw_output)
+                except json.decoder.JSONDecodeError as loose_error:
+                    logger.error(f"JSONDecodeError: {loose_error}")
+                    logger.error(f"Raw output: {raw_output}")
+                    raise Exception("Invalid JSON response from LLM") from loose_error
+
+            if not isinstance(result, dict):
+                raise ValueError(f"Invalid JSON response from LLM: {result}")
+
+            return result
         elif self.output_mode == OutputMode.TEXT:
             return raw_output
         else:

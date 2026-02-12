@@ -87,25 +87,22 @@ Additional prerequisites for local deployment:
 
 ### OpenAI
 
-* GPT-5.1
-* GPT-5 mini
-* GPT-4.1 (recommended)
+* GPT-5.2
+* GPT-4.1
 
 ### Anthropic
 
-* Claude Sonnet 4.5 (recommended)
-* Claude Opus 4.1
+* Claude Sonnet 4.5
+* Claude Opus 4.6
 
 ### Google
 
-* Gemini 2.5 Flash
-* Gemini 2.5 Pro (recommended)
+* Gemini 3 Flash Preview
+* Gemini 3 Pro Preview
 
 ### Fireworks AI
 
-* Llama 4 Maverick
-* Qwen 3 235B
-* Deepseek V3.1 (recommended)
+* Kimi K2.5
 
 ## Core features
 

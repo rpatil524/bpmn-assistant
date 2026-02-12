@@ -22,7 +22,6 @@ from bpmn_assistant.utils import (
     extract_images_from_message_history,
     get_available_providers,
     get_llm_facade,
-    replace_reasoning_model,
 )
 
 ALLOWED_ORIGINS = [
@@ -82,8 +81,7 @@ async def _determine_intent(request: DetermineIntentRequest) -> JSONResponse:
     """
     Determine the intent of the user query
     """
-    model = replace_reasoning_model(request.model)
-    llm_facade = get_llm_facade(model, api_keys=request.api_keys)
+    llm_facade = get_llm_facade(request.model, api_keys=request.api_keys)
     images = extract_images_from_message_history(request.message_history)
     intent = determine_intent(llm_facade, request.message_history, images=images)
     return JSONResponse(content=intent)
@@ -123,8 +121,9 @@ async def _modify(request: ModifyBpmnRequest) -> JSONResponse:
 
 @app.post("/talk")
 async def _talk(request: ConversationalRequest) -> StreamingResponse:
-    model = replace_reasoning_model(request.model)
-    conversational_service = ConversationalService(model, api_keys=request.api_keys)
+    conversational_service = ConversationalService(
+        request.model, api_keys=request.api_keys
+    )
     images = extract_images_from_message_history(request.message_history)
 
     if request.needs_to_be_final_comment:

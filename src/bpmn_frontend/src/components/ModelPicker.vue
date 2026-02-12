@@ -12,14 +12,6 @@
       no-data-text="Please provide API keys"
       variant="outlined"
     ></v-select>
-    <div
-      v-if="showReasoningModelWarning"
-      class="text-caption text-warning mt-1"
-      style="width: 200px; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis"
-      title="Reasoning model - may be slower"
-    >
-      ⚠️ Reasoning model - slower
-    </div>
   </div>
 </template>
 
@@ -28,17 +20,13 @@ import { bpmnAssistantUrl, isHostedVersion } from '../config';
 import { getApiKeys } from '../utils/apiKeys';
 
 const Models = Object.freeze({
-  GPT_5_1: 'gpt-5.1',
-  GPT_5_MINI: 'gpt-5-mini',
+  GPT_5_2: 'gpt-5.2-2025-12-11',
   GPT_4_1: 'gpt-4.1',
   SONNET_4_5: 'claude-sonnet-4-5-20250929',
-  OPUS_4_1: 'claude-opus-4-1-20250805',
-  GEMINI_2_5_PRO: 'gemini/gemini-2.5-pro',
-  GEMINI_2_5_FLASH: 'gemini/gemini-2.5-flash',
-  LLAMA_4_MAVERICK:
-    'fireworks_ai/accounts/fireworks/models/llama4-maverick-instruct-basic',
-  QWEN_3_235B: 'fireworks_ai/accounts/fireworks/models/qwen3-235b-a22b',
-  DEEPSEEK_V3_1: 'fireworks_ai/accounts/fireworks/models/deepseek-v3p1-terminus',
+  OPUS_4_6: 'claude-opus-4-6',
+  GEMINI_3_PRO: 'gemini/gemini-3-pro-preview',
+  GEMINI_3_FLASH: 'gemini/gemini-3-flash-preview',
+  KIMI_K2P5: 'fireworks_ai/kimi-k2p5',
 });
 
 const Providers = Object.freeze({
@@ -60,10 +48,9 @@ export default {
     return {
       selectedModel: '',
       models: [
-        { value: Models.GPT_5_1, title: 'GPT-5.1', provider: Providers.OPENAI },
         {
-          value: Models.GPT_5_MINI,
-          title: 'GPT-5 mini',
+          value: Models.GPT_5_2,
+          title: 'GPT-5.2',
           provider: Providers.OPENAI,
         },
         { value: Models.GPT_4_1, title: 'GPT-4.1', provider: Providers.OPENAI },
@@ -73,33 +60,23 @@ export default {
           provider: Providers.ANTHROPIC,
         },
         {
-          value: Models.OPUS_4_1,
-          title: 'Claude Opus 4.1',
+          value: Models.OPUS_4_6,
+          title: 'Claude Opus 4.6',
           provider: Providers.ANTHROPIC,
         },
         {
-          value: Models.GEMINI_2_5_FLASH,
-          title: 'Gemini 2.5 Flash',
+          value: Models.GEMINI_3_FLASH,
+          title: 'Gemini 3 Flash',
           provider: Providers.GOOGLE,
         },
         {
-          value: Models.GEMINI_2_5_PRO,
-          title: 'Gemini 2.5 Pro',
+          value: Models.GEMINI_3_PRO,
+          title: 'Gemini 3 Pro',
           provider: Providers.GOOGLE,
         },
         {
-          value: Models.LLAMA_4_MAVERICK,
-          title: 'Llama 4 Maverick',
-          provider: Providers.FIREWORKS_AI,
-        },
-        {
-          value: Models.QWEN_3_235B,
-          title: 'Qwen 3',
-          provider: Providers.FIREWORKS_AI,
-        },
-        {
-          value: Models.DEEPSEEK_V3_1,
-          title: 'Deepseek V3.1',
+          value: Models.KIMI_K2P5,
+          title: 'Kimi K2.5',
           provider: Providers.FIREWORKS_AI,
         },
       ],
@@ -120,12 +97,6 @@ export default {
       }
 
       return filteredModels;
-    },
-    showReasoningModelWarning() {
-      return (
-        this.selectedModel === Models.GPT_5 ||
-        this.selectedModel === Models.GPT_5_MINI
-      );
     },
   },
   methods: {
@@ -179,13 +150,13 @@ export default {
         this.$parent.setHasAvailableProviders(hasProviders);
 
         if (this.availableProviders.includes(Providers.OPENAI)) {
-          this.onModelChange(Models.GPT_4_1);
+          this.onModelChange(Models.GPT_5_2);
         } else if (this.availableProviders.includes(Providers.ANTHROPIC)) {
-          this.onModelChange(Models.SONNET_4_5);
+          this.onModelChange(Models.OPUS_4_6);
         } else if (this.availableProviders.includes(Providers.GOOGLE)) {
-          this.onModelChange(Models.GEMINI_2_5_PRO);
+          this.onModelChange(Models.GEMINI_3_PRO);
         } else if (this.availableProviders.includes(Providers.FIREWORKS_AI)) {
-          this.onModelChange(Models.DEEPSEEK_V3_1);
+          this.onModelChange(Models.KIMI_K2P5);
         }
       } catch (error) {
         console.error('Error fetching available providers', error);

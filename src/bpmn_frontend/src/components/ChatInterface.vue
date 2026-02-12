@@ -170,7 +170,6 @@
           <v-textarea
             label="Message BPMN Assistant..."
             v-model="currentInput"
-            :disabled="isLoading"
             :counter="10000"
             rows="4"
             @keydown.enter.prevent="handleKeyDown"
@@ -230,6 +229,11 @@ import Intent from '../enums/Intent';
 import { bpmnAssistantUrl, isHostedVersion } from '../config';
 import { getApiKeys } from '../utils/apiKeys';
 
+const STREAM_IDLE_TIMEOUT_MS = 10000;
+const STREAM_TOTAL_TIMEOUT_MS = 30000;
+const FINAL_RESPONSE_FALLBACK_MESSAGE =
+  'I finished the update, but the final response failed to render.';
+
 export default {
   name: 'ChatInterface',
   components: {
@@ -266,8 +270,7 @@ export default {
   computed: {
     isOpenAIModel() {
       return (
-        this.selectedModel === 'gpt-5.1' ||
-        this.selectedModel === 'gpt-5-mini' ||
+        this.selectedModel === 'gpt-5.2-2025-12-11' ||
         this.selectedModel === 'gpt-4.1'
       );
     },
@@ -310,6 +313,10 @@ export default {
       }
     },
     async handleMessageSubmit() {
+      if (this.isLoading) {
+        return;
+      }
+
       if (!this.currentInput.trim()) {
         return;
       }
@@ -345,12 +352,18 @@ export default {
       this.messages.push(message);
       this.currentInput = '';
       this.selectedImages = []; // Clear selected images after sending
+      this.isLoading = true;
 
       this.$nextTick(() => {
         this.scrollToBottom();
       });
 
       const intent = await this.determineIntent();
+
+      if (!intent) {
+        this.isLoading = false;
+        return;
+      }
 
       switch (intent) {
         case Intent.TALK:
@@ -360,7 +373,6 @@ export default {
           });
           break;
         case Intent.MODIFY:
-          this.isLoading = true;
           this.$nextTick(() => {
             this.scrollToBottom();
           });
@@ -370,7 +382,6 @@ export default {
           );
           this.onBpmnJsonReceived(bpmnJson);
           this.onBpmnXmlReceived(bpmnXml);
-          this.isLoading = false;
           await this.talk(bpmnJson, this.selectedModel, true); // Make final comment
           this.$nextTick(() => {
             this.scrollToBottom();
@@ -378,6 +389,7 @@ export default {
           break;
         default:
           console.error('Unknown intent:', intent);
+          this.isLoading = false;
           if (!this.hasError) {
             this.setError();
           }
@@ -420,64 +432,200 @@ export default {
         this.setError(error?.message);
       }
     },
-    async talk(process, selectedModel, needsToBeFinalComment) {
-      try {
-        const apiKeys = getApiKeys();
-        const payload = {
-          message_history: toRaw(this.messages),
-          process: process,
-          model: selectedModel,
-          needs_to_be_final_comment: needsToBeFinalComment,
-          api_keys: apiKeys,
-        };
+    appendOrAddLastAssistantMessage(newText) {
+      if (!newText) {
+        return;
+      }
 
+      if (
+        this.messages.length > 0 &&
+        this.messages[this.messages.length - 1].role === 'assistant'
+      ) {
+        const lastMessage = this.messages[this.messages.length - 1];
+        lastMessage.content = (lastMessage.content || '') + newText;
+      } else {
+        this.messages.push({ content: newText, role: 'assistant' });
+      }
+    },
+    removeMessagesAddedAfter(index) {
+      if (this.messages.length > index) {
+        this.messages.splice(index);
+      }
+    },
+    pushFinalResponseFallbackMessage() {
+      this.messages.push({
+        content: FINAL_RESPONSE_FALLBACK_MESSAGE,
+        role: 'assistant',
+      });
+    },
+    async streamTalkAttempt(payload) {
+      const streamController = new AbortController();
+      let timeoutReason = '';
+      let idleTimeoutId = null;
+      let totalTimeoutId = null;
+
+      const clearTimers = () => {
+        if (idleTimeoutId) {
+          clearTimeout(idleTimeoutId);
+          idleTimeoutId = null;
+        }
+
+        if (totalTimeoutId) {
+          clearTimeout(totalTimeoutId);
+          totalTimeoutId = null;
+        }
+      };
+
+      const resetIdleTimeout = () => {
+        if (idleTimeoutId) {
+          clearTimeout(idleTimeoutId);
+        }
+
+        idleTimeoutId = setTimeout(() => {
+          timeoutReason = 'idle';
+          streamController.abort();
+        }, STREAM_IDLE_TIMEOUT_MS);
+      };
+
+      totalTimeoutId = setTimeout(() => {
+        timeoutReason = 'total';
+        streamController.abort();
+      }, STREAM_TOTAL_TIMEOUT_MS);
+
+      try {
         const response = await fetch(`${bpmnAssistantUrl}/talk`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
+          signal: streamController.signal,
         });
 
         if (!response.ok) {
-          console.error(`HTTP error! Status: ${response.status}`);
-          await this.handleErrorResponse(
-            response,
-            'Unable to process the assistant response.'
-          );
-          return;
+          const error = new Error(`HTTP error! Status: ${response.status}`);
+          error.response = response;
+          throw error;
         }
 
-        // Handle the response as a stream
+        if (!response.body) {
+          const error = new Error('Stream body is empty.');
+          error.code = 'empty_stream';
+          throw error;
+        }
+
         const reader = response.body.getReader();
+        const decoder = new TextDecoder('utf-8');
+        let hasStreamedText = false;
 
-        const updateOrAddLastMessage = (newText) => {
-          if (
-            this.messages.length > 0 &&
-            this.messages[this.messages.length - 1].role === 'assistant'
-          ) {
-            const lastMessage = this.messages[this.messages.length - 1];
-            lastMessage.content = (lastMessage.content || '') + newText;
-          } else {
-            this.messages.push({ content: newText, role: 'assistant' });
-          }
-        };
+        resetIdleTimeout();
 
-        const processText = async ({ done, value }) => {
+        while (true) {
+          const { done, value } = await reader.read();
+
           if (done) {
-            console.log('Stream complete');
+            break;
+          }
+
+          resetIdleTimeout();
+
+          const chunk = decoder.decode(value, { stream: true });
+          if (!chunk) {
+            continue;
+          }
+
+          hasStreamedText = true;
+          this.appendOrAddLastAssistantMessage(chunk);
+        }
+
+        const trailingChunk = decoder.decode();
+        if (trailingChunk) {
+          hasStreamedText = true;
+          this.appendOrAddLastAssistantMessage(trailingChunk);
+        }
+
+        if (!hasStreamedText) {
+          const error = new Error('Stream completed without assistant tokens.');
+          error.code = 'empty_stream';
+          throw error;
+        }
+      } catch (error) {
+        if (timeoutReason === 'idle') {
+          const timeoutError = new Error(
+            `Stream idle timeout after ${STREAM_IDLE_TIMEOUT_MS / 1000}s without tokens.`
+          );
+          timeoutError.code = 'stream_idle_timeout';
+          throw timeoutError;
+        }
+
+        if (timeoutReason === 'total') {
+          const timeoutError = new Error(
+            `Stream total timeout after ${STREAM_TOTAL_TIMEOUT_MS / 1000}s.`
+          );
+          timeoutError.code = 'stream_total_timeout';
+          throw timeoutError;
+        }
+
+        throw error;
+      } finally {
+        clearTimers();
+      }
+    },
+    async talk(process, selectedModel, needsToBeFinalComment) {
+      const apiKeys = getApiKeys();
+      const payload = {
+        message_history: toRaw(this.messages),
+        process: process,
+        model: selectedModel,
+        needs_to_be_final_comment: needsToBeFinalComment,
+        api_keys: apiKeys,
+      };
+
+      const maxAttempts = needsToBeFinalComment ? 2 : 1;
+
+      for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+        const messageCountBeforeAttempt = this.messages.length;
+
+        try {
+          await this.streamTalkAttempt(payload);
+          this.isLoading = false;
+          return;
+        } catch (error) {
+          console.error(
+            `Error responding to user query (attempt ${attempt}/${maxAttempts}):`,
+            error
+          );
+
+          this.removeMessagesAddedAfter(messageCountBeforeAttempt);
+
+          const isStreamRenderFailure =
+            error?.code === 'stream_idle_timeout' ||
+            error?.code === 'stream_total_timeout' ||
+            error?.code === 'empty_stream';
+          const canRetrySilently =
+            needsToBeFinalComment &&
+            isStreamRenderFailure &&
+            attempt < maxAttempts;
+
+          if (canRetrySilently) {
+            continue;
+          }
+
+          this.isLoading = false;
+
+          if (needsToBeFinalComment && isStreamRenderFailure) {
+            this.pushFinalResponseFallbackMessage();
             return;
           }
 
-          const chunk = new TextDecoder('utf-8').decode(value);
-          // console.log(JSON.stringify(chunk));
-          updateOrAddLastMessage(chunk);
-
-          return reader.read().then(processText);
-        };
-
-        return reader.read().then(processText);
-      } catch (error) {
-        console.error('Error responding to user query:', error);
-        this.setError(error?.message);
+          if (error.response) {
+            await this.handleErrorResponse(
+              error.response,
+              'Unable to process the assistant response.'
+            );
+          } else {
+            this.setError(error?.message);
+          }
+          return;
+        }
       }
     },
     async modify(process, selectedModel) {
