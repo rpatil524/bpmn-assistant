@@ -157,7 +157,7 @@ The application currently supports a subset of BPMN elements:
 
 ## Paper
 
-[BPMN Assistant: An LLM-Based Approach to Business Process Modeling](https://arxiv.org/abs/2509.24592)
+[BPMN Assistant: An LLM-Based Approach to Business Process Modeling](https://doi.org/10.3390/app16052213)
 
 ## Contact
 
